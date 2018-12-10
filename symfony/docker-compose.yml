@@ -1,0 +1,125 @@
+version: '2'
+
+services:
+  nginx:
+    build: docker/nginx
+    ports:
+      - 80:80
+    volumes_from:
+      - php
+    volumes:
+      - ./logs/nginx/:/var/log/nginx
+    networks:
+      - frontend
+  php:
+    build:
+      context: docker/php7-fpm
+      args:
+        TIMEZONE: Europe/London
+    volumes:
+      - ./:/var/www/symfony
+      - ./.composer:/root/.composer/:cached
+      - ./logs/symfony:/var/www/symfony/app/logs
+    networks:
+      - frontend
+  firefox:
+    image: selenium/node-firefox:3.14
+    volumes:
+      - /dev/shm:/dev/shm
+    depends_on:
+      - hub
+    environment:
+      HUB_HOST: hub
+  chrome:
+    image: selenium/node-chrome:3.14
+    volumes:
+      - /dev/shm:/dev/shm
+    depends_on:
+      - hub
+    environment:
+      HUB_HOST: hub
+  hub:
+    image: selenium/hub:3.14
+    ports:
+      - "4444:4444"
+    networks:
+      - frontend
+  redis:
+    image: redis:alpine
+    ports:
+      - 6379:6379
+    networks:
+      - frontend
+  memcached:
+    image: memcached
+    ports:
+      - 11211:11211
+    networks:
+      - frontend
+  db:
+    image: mysql:5
+    ports:
+      - 3306:3306
+    volumes:
+      - "./.data/db:/var/lib/mysql"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DOCKER_MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DOCKER_MYSQL_DATABASE}
+      MYSQL_USER: ${DOCKER_MYSQL_USER}
+      MYSQL_PASSWORD: ${DOCKER_MYSQL_PASSWORD}
+    networks:
+      - frontend
+  mailhog:
+    build: docker/mailhog
+    ports:
+      - 1025:1025
+      - 8025:8025
+    networks:
+      - frontend
+  elasticsearch:
+    build:
+      context: docker/elasticsearch
+    volumes:
+      - ./docker/elasticsearch/config/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    environment:
+      ES_JAVA_OPTS: "-Xmx256m -Xms256m"
+    networks:
+      - elk
+      - frontend
+  logstash:
+    build:
+      context: docker/logstash
+    volumes:
+      - ./docker/logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
+      - ./docker/logstash/pipeline:/usr/share/logstash/pipeline:ro
+      - ./docker/logstash/patterns:/usr/share/logstash/patterns:ro
+    volumes_from:
+      - php
+      - nginx
+    ports:
+      - "5000:5000"
+    environment:
+      LS_JAVA_OPTS: "-Xmx256m -Xms256m"
+    networks:
+      - elk
+    depends_on:
+      - elasticsearch
+  kibana:
+    build:
+      context: docker/kibana
+    volumes:
+      - ./docker/kibana/config/:/usr/share/kibana/config:ro
+    ports:
+      - "5601:5601"
+    networks:
+      - elk
+    depends_on:
+      - elasticsearch
+networks:
+  elk:
+    driver: bridge
+  frontend:
+    driver: bridge
